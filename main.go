@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -12,8 +13,13 @@ import (
 func main() {
 	// get commandline arguments
 	args := os.Args
+	if len(args) != 3 {
+		fmt.Printf("You must provide exactly 2 arguments: host and proxy port\n. Example: %s http://localhost:8001 9090\n", args[0])
+		os.Exit(1)
+	}
 
-	log.Println(args)
+	host := args[1]
+	proxyPort := args[2]
 
 	app := fiber.New()
 	app.Use(cors.New())
@@ -31,16 +37,20 @@ func main() {
 
 			agent := fiber.AcquireAgent()
 			agent.Request().Header.SetMethod(http.MethodGet)
-			agent.Request().SetRequestURI("http://localhost:8001" + ctx.Path())
-			err := agent.Parse()
-			if err != nil {
-				log.Printf("error : %s", err)
-				return ctx.SendStatus(fiber.StatusInternalServerError)
+			for k, v := range ctx.GetReqHeaders() {
+				log.Printf("adding header %s: %s", k, v)
+				agent.Request().Header.Add(k, v)
+			}
+
+			agent.Request().SetBody(ctx.Body())
+			agent.Request().SetRequestURI(host + ctx.Path())
+
+			if err := agent.Parse(); err != nil {
+				return ctx.Status(fiber.StatusInternalServerError).SendString(err.Error())
 			}
 
 			statusCode, body, errs := agent.Bytes()
 			if len(errs) > 0 {
-				log.Printf("3 error %s", err)
 				return ctx.Status(statusCode).JSON(errs)
 			}
 
@@ -62,7 +72,7 @@ func main() {
 				agent.Request().Header.Add(k, v)
 			}
 			agent.Request().SetBody(ctx.Body())
-			agent.Request().SetRequestURI("http://localhost:8001" + ctx.Path())
+			agent.Request().SetRequestURI(host + ctx.Path())
 
 			err := agent.Parse()
 			if err != nil {
@@ -84,7 +94,7 @@ func main() {
 
 	log.Printf("Starting application...")
 
-	if err := app.Listen(":9001"); err != nil {
+	if err := app.Listen(":" + proxyPort); err != nil {
 		log.Fatalf("Error starting cors proxy: %s \n", err)
 	}
 }
